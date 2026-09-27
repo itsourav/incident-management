@@ -1,6 +1,7 @@
 # Zero-Trust Agentic AI Ops — Implementation Roadmap
 
-> A streamlined, incremental engineering plan to implement the **Infra-Agnostic Intelligent Ops Framework** described in [PLAN.md](PLAN.md).
+> A streamlined, incremental engineering plan to implement the **Infra-Agnostic Intelligent Ops Framework** described in [PLAN.md](PLAN.md).  
+> Built with standard **Spring Boot MVC (layered: controller, service, dao, model, config)** and **Embabel (GOAP)**.
 
 ---
 
@@ -11,8 +12,8 @@
 │                                 PHASE-WISE EXECUTION TIMELINE                                   │
 ├───────────────────┬───────────────────┬───────────────────┬──────────────────┬──────────────────┤
 │      PHASE 0      │      PHASE 1      │      PHASE 2      │     PHASE 3      │     PHASE 4      │
-│  Local Stack &    │  Domain Models &  │   MCP Gateway &   │  5 Specialized   │   BFF Layer &    │
-│  Containers       │  Kafka Topics     │   Tool Servers    │  Agents Pipeline │   HITL Gates     │
+│  Scaffolding &    │  Models, DAO &    │   MCP Gateway &   │  Embabel GOAP    │   BFF Layer &    │
+│  Containers       │  Kafka Topics     │   Tool Security   │  Agents Pipeline │   HITL Gates     │
 ├───────────────────┴───────────────────┴───────────────────┴──────────────────┴──────────────────┤
 │                                 PHASE 5                                                         │
 │                adrit-ui Integration & End-to-End Incident Walkthrough                          │
@@ -21,48 +22,46 @@
 
 ---
 
-## Phase 0: Local Stack & Infrastructure Scaffolding
+## Phase 0: Scaffolding, Standard Layered Structure & Infrastructure
 > **Duration:** Days 1–2  
-> **Objective:** Stand up hermetic local infrastructure (Kafka, PostgreSQL, Neo4j, WireMock) with zero external cloud dependencies.
+> **Objective:** Establish the 3 standard Spring Boot MVC microservices and hermetic local container infrastructure.
 
 ### Deliverables
 1. **Docker Compose Environment (`docker/docker-compose.yml`)**:
-   - **Apache Kafka / Redpanda**: Local broker pre-configured with core incident topics.
-   - **PostgreSQL**: Initialized with tables for `incidents`, `approvals`, and `audit_trail`.
-   - **Neo4j**: Graph database pre-seeded with sample microservice topology (`checkout-service` $\rightarrow$ `payment-gateway` $\rightarrow$ `orders-db`).
-   - **WireMock Containers**: Canned API stubs for:
-     - GitHub API (commit history, PR creation)
-     - ArgoCD API (sync status, rollback endpoint)
-     - PagerDuty & Slack webhooks
-2. **Project Structure Setup**:
-   - `adrit-domain`: Pure Java 21 domain records and event contracts.
-   - `adrit-agents`: The 5 specialized agent implementations (Spring AI).
-   - `adrit-mcp-gateway`: Policy enforcement gateway and tool servers.
-   - `adrit-bff`: Backend-for-Frontend query & approval REST/SSE service.
-   - `adrit-ui`: React 19 + Vite operations console.
+   - **Apache Kafka / Redpanda**: Local broker with pre-configured incident topics.
+   - **PostgreSQL**: Relational schema for incidents, approvals, and append-only audit trail.
+   - **Neo4j**: Pre-seeded with service dependency graph (`checkout-service` $\rightarrow$ `payment-gateway` $\rightarrow$ `orders-db`).
+   - **Jaeger**: Distributed tracing backend capturing end-to-end spans.
+   - **WireMock Containers**: Canned API stubs for GitHub, ArgoCD, PagerDuty, and Slack.
+2. **Standard Layered Microservices Layout**:
+   - `adrit-bff` (Spring Boot MVC):
+     - `controller/`, `service/`, `dao/`, `model/`, `config/`
+   - `adrit-agents` (Spring Boot + Embabel GOAP):
+     - `consumer/`, `embabel/`, `service/`, `client/`, `model/`, `config/`
+   - `adrit-mcp-gateway` (Spring Boot Gateway):
+     - `controller/`, `filter/`, `service/`, `tools/`, `model/`, `config/`
+   - `adrit-ui` (React 19 + Vite):
+     - Ops console dashboard and interactive HITL modals.
 
 ### Verification & Exit Criteria
-- `docker compose up -d` starts all services healthy.
-- Seeded Neo4j Cypher query returns downstream dependency path for `checkout-service`.
-- WireMock stubs return expected HTTP 200 responses.
+- `docker compose up -d` starts Kafka, Postgres, Neo4j, Jaeger, and WireMock healthy.
+- All 3 Spring Boot applications build and start cleanly with standard Tomcat servlet containers.
 
 ---
 
-## Phase 1: Domain Models & Kafka Event Contracts
+## Phase 1: Models, DAO Layer & Kafka Topic Schemas
 > **Duration:** Days 3–5  
-> **Objective:** Define immutable event schemas for asynchronous agent handoffs across Kafka.
+> **Objective:** Implement data access objects, JPA entities/repositories, and Kafka serialization contracts.
 
 ### Deliverables
-1. **Core Domain Models (`adrit-domain`)**:
-   - Immutable Java 21 `record`s:
-     - `IncidentAlert`: Source, severity, service, timestamp, raw telemetry.
-     - `TriageAssessment`: Confirmed severity (`P1`–`P5`), assigned team, blast-radius summary, `requiresApproval` flag.
-     - `RootCauseFinding`: Identified commit SHA, offending log snippet, downstream affected services.
-     - `FixProposal`: Proposed rollback commit or config patch, risk level, affected systems.
-     - `DeploymentResult`: Rollout status, canary health metrics, rollback verification.
-     - `ApprovalRecord`: Approver identity (OIDC subject), stage, action, timestamp, decision reason.
-     - `AuditEntry`: Monotonic sequence, timestamp, actor, eventType, raw payload, status.
-2. **Kafka Event Topics & Serializers**:
+1. **Domain Models & Entities**:
+   - `IncidentEntity`: Stores incident ID, title, status, severity, timestamps, and current stage.
+   - `ApprovalRecord`: Approver identity (OIDC subject), stage, action, timestamp, decision rationale.
+   - `AuditEntry`: Monotonic sequence, timestamp, actor, event type, raw payload, status.
+2. **DAO / Repository Layer (`dao/`)**:
+   - `IncidentDao` (Spring Data JPA / JDBC): CRUD for active incidents and status updates.
+   - `AuditDao`: Append-only queries and inserts for compliance audit logs.
+3. **Kafka Event Topic Schemas**:
    - `incident.alerts`: Raw normalized incoming alerts.
    - `incident.triaged`: Emitted by Triage Agent after classification.
    - `incident.investigated`: Emitted by Investigation Agent with root-cause finding.
@@ -73,95 +72,106 @@
 
 ### Verification & Exit Criteria
 - Unit tests verify serialization/deserialization across all Kafka event records.
-- Integration test publishes an `AlertIngestedEvent` to Kafka and successfully consumes it.
+- Integration test persists an `IncidentEntity` and verifies append-only audit trail logging.
 
 ---
 
-## Phase 2: Zero-Trust MCP Gateway & Tool Servers
+## Phase 2: Zero-Trust MCP Gateway & Tool Security
 > **Duration:** Days 6–8  
-> **Objective:** Build the secure tool execution layer with token scoping and policy deny-lists.
+> **Objective:** Build the secure tool execution layer with token scoping, deny-lists, and dynamic secret injection.
 
 ### Deliverables
 1. **MCP Gateway Core (`adrit-mcp-gateway`)**:
-   - **Token Scope Validator**: Validates short-lived JWT passed by agents, asserting required scopes:
+   - `ToolExecutionController`: Exposes JSON-RPC / REST endpoint for tool execution.
+   - `TokenScopeFilter`: Validates short-lived JWT passed by agents, asserting required scopes:
      - `mcp:vcs:read` / `mcp:vcs:write`
      - `mcp:k8s:read` / `mcp:k8s:write`
      - `mcp:cicd:deploy`
-   - **Policy & Deny-List Filter**: Enforces hard boundaries (e.g., blocks `k8s:deleteDeployment`, drops table commands, or unauthorized namespace modifications).
-2. **Specialized MCP Servers**:
-   - `mcp-vcs-server`: Wraps Git/GitHub API to fetch diffs and create rollback pull requests.
-   - `mcp-cicd-server`: Wraps ArgoCD API to trigger rollbacks and monitor sync status.
-   - `mcp-observability-server`: Wraps Prometheus/Loki to query metrics and recent error logs.
+   - `DenyListSecurityFilter`: Enforces hard safety boundaries (blocks destructive operations like `k8s:deleteDeployment` or dropping database tables).
+   - `VaultSecretService`: Retrieves short-lived cluster/repo credentials dynamically from secret manager.
+2. **Tool Implementations (`tools/`)**:
+   - `GitHubTool`: Fetches commit diffs and creates rollback pull requests.
+   - `ArgoCdTool`: Triggers rollbacks and monitors sync status.
+   - `ObservabilityTool`: Queries Prometheus metrics and recent Loki logs.
+   - `KubernetesTool`: Fetches pod status, logs, and restarts deployments.
 
 ### Verification & Exit Criteria
-- Integration test verifies that a permitted tool call (`getLogs`) succeeds with valid token.
-- Integration test verifies that an unpermitted action (e.g. `deleteDeployment`) is rejected by the Gateway with an HTTP 403 `DENIED`.
+- Integration test verifies that a permitted tool call (`getLogs`) succeeds with a valid JWT token.
+- Integration test verifies that a blacklisted action (`deleteDeployment`) is rejected with HTTP 403 `DENIED`.
 
 ---
 
-## Phase 3: The 5 Specialized Agents & Cost-Aware Routing
+## Phase 3: Embabel (GOAP) Agents & Kafka Pipeline
 > **Duration:** Days 9–13  
-> **Objective:** Implement the 5 specialized agents that consume from Kafka, reason via LLMs, execute tools via MCP Gateway, and emit the next stage event.
+> **Objective:** Implement the 5 specialized agents using Embabel's Goal-Oriented Action Planning and Spring AI model routing.
 
 ### Deliverables
 1. **Alert Normalizer**:
    - Ingests raw webhook alerts, cleans payload, publishes to `incident.alerts`.
 2. **Triage Agent (`TriageAgent`)**:
    - Consumes `incident.alerts`.
-   - Uses lightweight model (e.g., Llama 3 / Claude 3.5 Haiku) for rapid classification.
+   - Embabel Goal: `IncidentClassifiedAndOwned`.
+   - Uses lightweight model (Llama 3 / Claude 3.5 Haiku) for rapid classification.
    - If P1 or ownership is ambiguous $\rightarrow$ halts and emits `ApprovalRequested(Stage.TRIAGE)`.
 3. **Investigation Agent (`InvestigationAgent`)**:
    - Consumes `incident.triaged`.
+   - Embabel Goal: `RootCauseCommitIdentified`.
    - Queries Neo4j service dependency graph for blast-radius analysis.
-   - Queries recent logs via MCP Observability server.
-   - Uses frontier reasoning model (Claude 3.7 Sonnet / GPT-4o) to isolate root-cause commit.
+   - Queries recent logs via MCP Gateway.
+   - Uses frontier model (Claude 3.7 Sonnet / GPT-4o) to isolate root-cause commit.
    - Emits `incident.investigated`.
 4. **Fixing Agent (`FixingAgent`)**:
    - Consumes `incident.investigated`.
-   - Drafts rollback PR or config patch via `mcp-vcs-server`.
+   - Embabel Goal: `RollbackPrFormulated`.
+   - Drafts rollback PR via `GitHubTool` in MCP Gateway.
    - Flags conditional approval gate for production changes $\rightarrow$ emits `ApprovalRequested(Stage.FIXING)`.
 5. **Deploy / Validation Agent (`DeployAgent`)**:
    - Consumes `incident.fix_approved`.
+   - Embabel Goal: `ProductionHealthVerified`.
    - Requires mandatory production approval $\rightarrow$ emits `ApprovalRequested(Stage.DEPLOY)`.
-   - Once authorized, triggers ArgoCD rollback via `mcp-cicd-server`.
+   - Once authorized, triggers ArgoCD rollback via `ArgoCdTool`.
    - Polls Prometheus metrics to confirm error rate has normalized.
    - Emits `incident.deployed`.
 6. **Release / Notify Agent (`ReleaseAgent`)**:
    - Consumes `incident.deployed`.
+   - Embabel Goal: `StakeholdersInformed`.
    - Outbound-only: updates Jira ticket status, posts resolution summary to Slack, and resolves PagerDuty incident.
    - Emits `incident.closed`.
 
 ### Verification & Exit Criteria
 - Each agent can be tested in isolation using mocked Kafka inputs.
-- Investigation agent successfully identifies the root cause commit from mock log traces.
+- Embabel planner successfully backward-plans from goal to tool execution and produces expected findings.
 
 ---
 
 ## Phase 4: BFF Layer & Multi-Stage HITL Approval Gates
 > **Duration:** Days 14–17  
-> **Objective:** Connect the operational console to Kafka via a secure BFF query and approval API.
+> **Objective:** Connect the operational console to Kafka via a secure Spring MVC BFF query and approval API.
 
 ### Deliverables
-1. **BFF Query & Approval Endpoints (`adrit-bff`)**:
-   - `GET /api/v1/incidents`: List active and resolved incidents.
-   - `GET /api/v1/incidents/{id}`: Detailed incident telemetry, findings, and current stage.
-   - `GET /api/v1/incidents/{id}/stream`: Server-Sent Events (SSE) streaming real-time stage transitions and agent activity to the UI.
-   - `POST /api/v1/incidents/{id}/approve`: Submit operator approval with OIDC user identity and rationale.
+1. **BFF Controllers (`adrit-bff/controller`)**:
+   - `IncidentController`:
+     - `GET /api/v1/incidents`: List active and resolved incidents.
+     - `GET /api/v1/incidents/{id}`: Detailed incident telemetry, findings, and current stage.
+   - `SseController`:
+     - `GET /api/v1/incidents/{id}/stream`: Standard `SseEmitter` streaming real-time stage transitions and agent activity to the UI.
+   - `ApprovalController`:
+     - `POST /api/v1/incidents/{id}/approve`: Submit operator approval with OIDC user identity and rationale.
 2. **Multi-Stage HITL Approval Orchestration**:
    - Intercepts approval requirements at **Triage**, **Fixing**, and **Deploy** stages.
    - Validates operator OIDC token and writes `ApprovalGrantedEvent` to Kafka, allowing the waiting agent to proceed.
-3. **Append-Only Audit Logger**:
-   - Persists every agent prompt, tool response, approval action, and state change to PostgreSQL.
+3. **Jaeger Tracing Integration**:
+   - Injects OpenTelemetry / Jaeger trace headers across Kafka messages and HTTP calls for distributed execution visibility.
 
 ### Verification & Exit Criteria
 - API integration test triggers an incident, verifies workflow halts at the Fixing stage, submits approval via `/approve`, and verifies workflow resumes.
-- SSE stream receives real-time progress events as agents complete their stages.
+- `SseEmitter` delivers real-time progress events as agents complete their stages.
 
 ---
 
 ## Phase 5: UI Integration & End-to-End Walkthrough
 > **Duration:** Days 18–20  
-> **Objective:** Connect `adrit-ui` (React + Vite) to the BFF API and run the complete Asha 5xx surge scenario.
+> **Objective:** Connect `adrit-ui` (React + Vite) to the BFF API and execute the complete Asha 5xx surge scenario.
 
 ### Deliverables
 1. **Frontend Updates (`adrit-ui`)**:
@@ -176,4 +186,4 @@
 
 ### Verification & Exit Criteria
 - Full end-to-end incident resolved in under 2 minutes with human approvals captured at all 3 checkpoints.
-- Complete audit trail visible in PostgreSQL and UI.
+- Complete audit trail visible in PostgreSQL and UI; distributed trace visible in Jaeger.

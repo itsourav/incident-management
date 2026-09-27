@@ -16,98 +16,85 @@ This framework solves that dilemma through three foundational principles:
 
 ---
 
-## 2. High-Level Architecture Diagram
+## 2. Microservice Topology & Packaging Architecture
 
-```mermaid
-flowchart TB
-    %% Styling
-    classDef uiStyle fill:#4f46e5,stroke:#3730a3,stroke-width:2px,color:#ffffff,font-weight:bold
-    classDef bffStyle fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#ffffff
-    classDef agentStyle fill:#1e293b,stroke:#8b5cf6,stroke-width:2px,color:#ffffff
-    classDef gwStyle fill:#1e293b,stroke:#f59e0b,stroke-width:2px,color:#ffffff
-    classDef mcpStyle fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#ffffff
-    classDef busStyle fill:#083344,stroke:#06b6d4,stroke-width:2px,color:#67e8f9
-    classDef dbStyle fill:#0f172a,stroke:#64748b,stroke-width:2px,color:#94a3b8
-    classDef extStyle fill:#18181b,stroke:#52525b,stroke-width:1px,color:#d4d4d8
+The backend is built using **traditional, standard Spring Boot layered microservices** (`controller`, `service`, `dao`, `model`, `config`) running on standard **Spring MVC (Tomcat / Servlet with Java 21 Virtual Threads)** — completely avoiding reactive complexity or rigid hexagonal boundaries.
 
-    %% UI & Human
-    UI["Ops Console (React + Vite Web UI)"]:::uiStyle
-    OPERATOR["Human On-Call Commander (Asha)"]:::uiStyle
+### 2.1 The 3 Backend Microservices (+ UI)
 
-    %% BFF Layer
-    subgraph BFF_LAYER ["BFF Layer (Backend-for-Frontend API)"]
-        direction TB
-        BFF_API["Query / Approval REST API"]
-        SSE_STREAM["Real-Time SSE Event Stream"]
-        OIDC_AUTH["OIDC / SSO Identity Validation"]
-    end
-    class BFF_LAYER bffStyle
+```
+                 ┌────────────────────────────────────────────────────────┐
+                 │                adrit-ui (React 19 + Vite)              │
+                 │             (Live Console & HITL Modal)                │
+                 └───────────────────────────┬────────────────────────────┘
+                                             │ HTTP REST / SSE Stream
+                                             ▼
+                 ┌────────────────────────────────────────────────────────┐
+                 │              1. adrit-bff (Spring Boot MVC)            │
+                 │         (Query, SSE Emitter, OIDC Approvals)           │
+                 └───────────────┬────────────────────────┬───────────────┘
+                                 │ State / Audit          │ Approval Events
+                                 ▼                        ▼
+                         ┌───────────────┐        ┌──────────────┐
+                         │  PostgreSQL   │        │    Kafka     │
+                         │ (Audit & DB)  │        │  Event Bus   │
+                         └───────────────┘        └──────┬───────┘
+                                                         │ A2A Topics
+                                                         ▼
+                 ┌────────────────────────────────────────────────────────┐
+                 │       2. adrit-agents (Spring Boot + Embabel)          │
+                 │          (Kafka Consumers & Embabel GOAP)              │
+                 │  • Alert Normalizer        • 3. Fixing Agent           │
+                 │  • 1. Triage Agent         • 4. Deploy / Valid. Agent  │
+                 │  • 2. Investigation Agent  • 5. Release / Notify Agent │
+                 └───────────────────────────┬────────────────────────────┘
+                                             │ Token-Scoped Tool Calls (JWT)
+                                             ▼
+                 ┌────────────────────────────────────────────────────────┐
+                 │       3. adrit-mcp-gateway (Spring Boot Gateway)       │
+                 │       (Scope Checks, Deny-List & Dynamic Secrets)      │
+                 └───────────────────────────┬────────────────────────────┘
+                                             │ Native Tool APIs
+                                             ▼
+                 ┌────────────────────────────────────────────────────────┐
+                 │               External Cloud & Ops Systems             │
+                 │       (Kubernetes, ArgoCD, GitHub, Prometheus, Loki)   │
+                 └────────────────────────────────────────────────────────┘
+```
 
-    %% Kafka Event Bus
-    KAFKA{{"Kafka A2A Event Bus (Asynchronous Agent Choreography)"}}:::busStyle
+---
 
-    %% 5 Specialized Agents
-    subgraph AGENTS_LAYER ["Specialized Agent Pipeline (Java / Spring Boot)"]
-        direction LR
-        A_NORM["Alert Normalizer"]
-        A_TRIAGE["1. Triage Agent"]
-        A_INVEST["2. Investigation Agent"]
-        A_FIX["3. Fixing Agent"]
-        A_DEPLOY["4. Deploy / Validation Agent"]
-        A_NOTIFY["5. Release / Notify Agent"]
-    end
-    class AGENTS_LAYER agentStyle
+### 2.2 Standard Layered Package Structure
 
-    %% MCP Gateway & Tool Servers
-    subgraph ZERO_TRUST_LAYER ["Zero-Trust Execution Layer"]
-        direction TB
-        MCP_GW["MCP Gateway\n(Scope Check + RBAC/ABAC + Deny-List)"]:::gwStyle
-        subgraph MCP_SERVERS ["Specialized MCP Domain Servers"]
-            MCP_VCS["mcp-vcs-server (GitHub/GitLab)"]:::mcpStyle
-            MCP_K8S["mcp-k8s-server (Kubernetes / Terraform)"]:::mcpStyle
-            MCP_CICD["mcp-cicd-server (ArgoCD / Jenkins)"]:::mcpStyle
-            MCP_OBS["mcp-observability-server (Prometheus / Loki)"]:::mcpStyle
-        end
-    end
+Each microservice adopts idiomatic, familiar enterprise Java packaging:
 
-    %% State & Knowledge
-    PG[("PostgreSQL\n(Incidents & Append-Only Audit Trail)")]:::dbStyle
-    NEO4J[("Neo4j Graph DB\n(Service Topology)")]:::dbStyle
-    SECRETS["Centralized Secret Manager\n(Short-lived Ephemeral Credentials)"]:::dbStyle
-    LLM_ROUTER["Cost-Aware Model Router\n(Lightweight Triage / Reasoning Frontier)"]:::extStyle
-
-    %% External Systems
-    EXT_SYS["External Infrastructure\n(K8s, ArgoCD, GitHub, PagerDuty, Slack, Jira)"]:::extStyle
-
-    %% Connections
-    OPERATOR <-->|Review & Approve| UI
-    UI <-->|HTTP REST & SSE| BFF_LAYER
-    BFF_LAYER <-->|State Queries & Audit Logs| PG
-    BFF_LAYER -->|Approval Events| KAFKA
-
-    %% Kafka Choreography Flow
-    A_NORM -->|incident.alerts| KAFKA
-    KAFKA -->|Consume Alert| A_TRIAGE
-    A_TRIAGE -->|incident.triaged| KAFKA
-    KAFKA -->|Consume Triaged| A_INVEST
-    A_INVEST -->|incident.rootcause| KAFKA
-    KAFKA -->|Consume RootCause| A_FIX
-    A_FIX -->|incident.fix_proposed| KAFKA
-    KAFKA -->|Consume Fix| A_DEPLOY
-    A_DEPLOY -->|incident.deployed| KAFKA
-    KAFKA -->|Consume Resolution| A_NOTIFY
-    A_NOTIFY -->|incident.closed| KAFKA
-    KAFKA -.->|Stream Updates| SSE_STREAM
-
-    %% Agent Integrations
-    AGENTS_LAYER <-->|Prompt Completion| LLM_ROUTER
-    A_INVEST <-->|Blast-Radius Traversal| NEO4J
-
-    %% Zero-Trust Tool Access
-    AGENTS_LAYER ==>|Token-Scoped JSON-RPC Request| MCP_GW
-    MCP_GW -->|Enforce Policy & Deny-Lists| MCP_SERVERS
-    MCP_SERVERS <-->|Dynamic Short-Lived Secrets| SECRETS
-    MCP_SERVERS <-->|Native API Calls| EXT_SYS
+```
+adrit-backend/
+├── adrit-bff/                                  ← Spring Boot MVC (BFF Layer)
+│   └── src/main/java/com/adrit/bff/
+│       ├── controller/                         ← IncidentController, ApprovalController, SseController
+│       ├── service/                            ← IncidentService, ApprovalService, AuditQueryService
+│       ├── dao/                                ← IncidentDao, AuditDao (Spring Data JPA / JDBC)
+│       ├── model/                              ← IncidentEntity, ApprovalRecord, AuditEntry
+│       └── config/                             ← SecurityConfig (OIDC/JWT), KafkaConfig, CorsConfig
+│
+├── adrit-agents/                               ← Spring Boot + Embabel (Kafka Agent Pipeline)
+│   └── src/main/java/com/adrit/agents/
+│       ├── consumer/                           ← Kafka listeners for the 5 stage topics
+│       ├── embabel/                            ← Embabel GOAP Agent Goals, Actions & Personas
+│       ├── service/                            ← TriageService, InvestigationService, FixingService, DeployService
+│       ├── client/                             ← McpGatewayClient, Neo4jClient
+│       ├── model/                              ← EventPayloads, RcaFinding, FixProposal, DeployResult
+│       └── config/                             ← EmbabelConfig, ModelRoutingConfig, KafkaConfig
+│
+└── adrit-mcp-gateway/                          ← Spring Boot Gateway (Zero-Trust Tool Perimeter)
+    └── src/main/java/com/adrit/gateway/
+        ├── controller/                         ← ToolExecutionController (JSON-RPC / REST)
+        ├── filter/                             ← TokenScopeFilter, DenyListSecurityFilter
+        ├── service/                            ← ToolDispatchService, VaultSecretService
+        ├── tools/                              ← KubernetesTool, ArgoCdTool, GitHubTool, ObservabilityTool
+        ├── model/                              ← ToolRequest, ToolResponse, PolicyRule
+        └── config/                             ← SecurityConfig, ToolRegistryConfig
 ```
 
 ---
@@ -126,7 +113,7 @@ Our architecture enforces two strict operational boundaries:
 
 2. **No Direct UI-to-Broker Access**:
    * The browser never speaks directly to Kafka.
-   * A dedicated **Backend-for-Frontend (BFF)** layer aggregates incident telemetry, serves real-time updates via Server-Sent Events (SSE), and serves as the validation checkpoint for all human approvals.
+   * A dedicated **Backend-for-Frontend (BFF)** layer aggregates incident telemetry, serves real-time updates via standard `SseEmitter`, and validates all human approvals.
 
 ---
 
@@ -139,13 +126,13 @@ Agents should never hold static credentials or talk directly to production infra
 2. **Hard Policy Enforcement**:
    * The Gateway performs strict RBAC/ABAC and deny-list checks before forwarding requests (e.g., automated agents are unconditionally blocked from destructive operations like `k8s:deleteDeployment` or dropping database tables).
 3. **Dynamic Secrets**:
-   * Specialized MCP servers (`mcp-vcs-server`, `mcp-k8s-server`, etc.) retrieve short-lived, cluster- or repo-scoped credentials directly from a centralized secret manager (e.g., HashiCorp Vault). Zero credentials are hardcoded.
+   * Specialized MCP tools (`KubernetesTool`, `ArgoCdTool`, `GitHubTool`) retrieve short-lived, cluster- or repo-scoped credentials directly from a centralized secret manager (e.g., HashiCorp Vault). Zero credentials are hardcoded.
 
 ---
 
 ### 3.3 Multi-Stage Human-in-the-Loop (HITL) Guardrails
 
-Enterprise safety means human oversight is not just an afterthought at the deployment phase. Our framework establishes checkpoints across multiple lifecycle stages:
+Enterprise safety means human oversight is applied across multiple lifecycle stages, not just at the end:
 
 | Stage | Gate Type | Trigger Condition | Operator Action in UI |
 |---|---|---|---|
@@ -157,7 +144,20 @@ Enterprise safety means human oversight is not just an afterthought at the deplo
 
 ---
 
-### 3.4 Zero-Trust Identity & Auditing
+### 3.4 Embabel as the Agentic Framework (GOAP)
+
+As highlighted in the blog, we use **Embabel** as the Java Agentic Framework:
+* **Goal-Oriented Action Planning (GOAP)**: Instead of rigid deterministic code or chaotic unbounded ReAct loops, Embabel models agents with bounded **Goals** and available **Actions**:
+  * *Triage Goal*: `IncidentClassifiedAndOwned`
+  * *Investigation Goal*: `RootCauseCommitIdentified`
+  * *Fixing Goal*: `RollbackPrFormulated`
+  * *Deploy Goal*: `ProductionHealthVerified`
+  * *Notify Goal*: `StakeholdersInformed`
+* Embabel plans backward from the goal, evaluates preconditions, invokes MCP tools, and synthesizes findings.
+
+---
+
+### 3.5 Zero-Trust Identity, PostgreSQL Audit & Jaeger Tracing
 
 * **User Authentication**: Corporate OIDC / IdP integration (Keycloak, Azure AD, Okta). The BFF validates JWT signatures on all operator requests.
 * **Service Authentication**: Every microservice and agent authenticates via short-lived service tokens issued by a centralized secret manager with automatic rotation.
@@ -167,10 +167,11 @@ Enterprise safety means human oversight is not just an afterthought at the deplo
   * Raw prompt and LLM response
   * Tool invoked, parameters, and MCP Gateway decision
   * Approval signature and decision rationale
+* **Distributed Tracing**: **Jaeger / OpenTelemetry** traces distributed agent activity and MCP calls end-to-end for performance and post-mortems.
 
 ---
 
-### 3.5 Cost-Aware Model Routing
+### 3.6 Cost-Aware Model Routing
 
 Running frontier models for every minor alert is unnecessarily expensive. The framework implements profile-based model routing:
 
@@ -187,7 +188,7 @@ Running frontier models for every minor alert is unnecessarily expensive. The fr
 
 1. **Alert Ingestion**:
    * Prometheus triggers a 5xx surge alert on `checkout-service`.
-   * The `Alert Normalizer` parses and enriches the alert payload, then publishes an `AlertIngestedEvent` to Kafka.
+   * The `Alert Normalizer` parses and enriches the alert payload, then publishes an `AlertIngestedEvent` to Kafka topic `incident.alerts`.
 2. **Triage**:
    * The `Triage Agent` evaluates severity as **P1** with ambiguous cross-service impact.
    * It publishes a triage summary and flags an **Optional HITL Gate** via the BFF API.
@@ -195,10 +196,10 @@ Running frontier models for every minor alert is unnecessarily expensive. The fr
    * Asha reviews the incident summary in the Ops UI and confirms service ownership.
    * The BFF writes an `OwnershipConfirmedEvent` to Kafka.
 4. **Investigation**:
-   * The `Investigation Agent` queries the Neo4j topology graph for downstream blast radius and pulls recent Loki logs via the Observability MCP server.
+   * The `Investigation Agent` queries the Neo4j topology graph for downstream blast radius and pulls recent Loki logs via the MCP Gateway.
    * It correlates a deployment commit from 15 minutes prior as the root cause.
 5. **Fix Proposal**:
-   * The `Fixing Agent` drafts a rollback PR via `mcp-vcs-server`.
+   * The `Fixing Agent` drafts a rollback PR via the MCP Gateway (`GitHubTool`).
    * Because this touches production code, it flags a **Conditional HITL Gate**.
 6. **Fix Approval (Gate 2)**:
    * Asha inspects the proposed Git diff in the UI and clicks **"Approve Patch"**.
@@ -206,7 +207,7 @@ Running frontier models for every minor alert is unnecessarily expensive. The fr
 7. **Deploy Gate (Gate 3 - Mandatory)**:
    * The `Deploy / Validation Agent` prepares the rollback and triggers a **Mandatory Production Gate**.
    * Asha authorizes the production rollout.
-   * The agent triggers the rollback via `mcp-cicd-server` (ArgoCD).
+   * The agent triggers the rollback via the MCP Gateway (`ArgoCdTool`).
 8. **Validation & Closure**:
    * The `Deploy / Validation Agent` monitors Prometheus metrics and confirms the 5xx rate has dropped under 0.5%.
    * The `Release / Notify Agent` automatically updates Jira and posts a resolution summary to Slack.
@@ -218,10 +219,11 @@ Running frontier models for every minor alert is unnecessarily expensive. The fr
 | Layer | Technology | Role |
 |---|---|---|
 | **Frontend** | React 19 + Vite | Real-time incident dashboard & HITL approval console |
-| **Backend / BFF** | Java 21 + Spring Boot 3.3 (WebFlux) | BFF query API, SSE stream, OIDC JWT validation |
+| **Backend / BFF** | Java 21 + Spring Boot MVC (Tomcat) | BFF query API, SSE Emitter, OIDC JWT validation |
 | **A2A Event Bus** | Apache Kafka / Redpanda | Decoupled asynchronous agent choreography |
-| **Agentic Logic** | Java 21 + Spring AI | Specialized agents with cost-aware model routing |
-| **Tool Gateway** | MCP Gateway (Model Context Protocol) | Token scoping, deny-list policy checks, secret injection |
+| **Agentic Logic** | Java 21 + Embabel (GOAP) + Spring AI | Specialized agents with cost-aware model routing |
+| **Tool Gateway** | Spring Boot MCP Gateway | Token scoping, deny-list policy checks, secret injection |
 | **Database** | PostgreSQL | Incidents repository and append-only audit ledger |
 | **Topology** | Neo4j | Service dependency graph & blast-radius analysis |
+| **Tracing** | Jaeger / OpenTelemetry | End-to-end distributed execution tracing |
 | **Identity & Secrets** | Keycloak (OIDC) + HashiCorp Vault | Zero-Trust user authentication & dynamic credential rotation |
