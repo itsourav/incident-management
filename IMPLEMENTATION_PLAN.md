@@ -22,6 +22,101 @@
 
 ---
 
+## System Topology & Microservices Architecture
+
+The following diagram defines the **3 Spring Boot MVC microservices**, their internal layered package structure (`controller`, `service`, `dao`, `model`), the Embabel GOAP pipeline, the zero-trust MCP Gateway, and the Kafka A2A event bus:
+
+```mermaid
+flowchart TB
+    %% Styling Classes
+    classDef uiStyle fill:#4f46e5,stroke:#3730a3,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef bffStyle fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#ffffff
+    classDef agentStyle fill:#1e293b,stroke:#8b5cf6,stroke-width:2px,color:#ffffff
+    classDef gwStyle fill:#1e293b,stroke:#f59e0b,stroke-width:2px,color:#ffffff
+    classDef dbStyle fill:#0f172a,stroke:#64748b,stroke-width:2px,color:#94a3b8
+    classDef busStyle fill:#083344,stroke:#06b6d4,stroke-width:2px,color:#67e8f9
+    classDef extStyle fill:#18181b,stroke:#52525b,stroke-width:1px,color:#d4d4d8
+
+    %% UI & Human
+    UI["ADRIT UI (React 19 + Vite Live Console)"]:::uiStyle
+    OPERATOR["Human On-Call Commander (Asha)"]:::uiStyle
+
+    %% Service 1: adrit-bff
+    subgraph BFF_SVC ["1. adrit-bff (Spring Boot MVC / BFF Layer)"]
+        direction TB
+        BFF_CTRL["controller: IncidentController, ApprovalController, SseController"]
+        BFF_SRV["service: IncidentService, ApprovalService, SseEmitter"]
+        BFF_DAO["dao: IncidentDao, AuditDao (JPA / JDBC)"]
+    end
+    class BFF_SVC bffStyle
+
+    %% Kafka Event Bus
+    KAFKA{{"Kafka / Redpanda Event Bus (Asynchronous Agent Choreography)"}}:::busStyle
+
+    %% Service 2: adrit-agents
+    subgraph AGENT_SVC ["2. adrit-agents (Spring Boot + Embabel GOAP)"]
+        direction TB
+        AG_CONS["consumer: Kafka Listeners for 5 Stage Topics"]
+        AG_EMBABEL["embabel: GOAP Goals, Actions & Personas"]
+        AG_SRV["service: Triage, Investigation, Fixing, Deploy, Release"]
+        AG_CLIENT["client: McpGatewayClient, Neo4jClient"]
+    end
+    class AGENT_SVC agentStyle
+
+    %% Service 3: adrit-mcp-gateway
+    subgraph GW_SVC ["3. adrit-mcp-gateway (Zero-Trust Tool Execution)"]
+        direction TB
+        GW_CTRL["controller: ToolExecutionController (JSON-RPC)"]
+        GW_FILT["filter: TokenScopeFilter & DenyListFilter"]
+        GW_TOOLS["tools: GitHubTool, ArgoCdTool, K8sTool, ObservabilityTool"]
+        GW_SECRETS["service: VaultSecretService (Dynamic Credentials)"]
+    end
+    class GW_SVC gwStyle
+
+    %% Data & Telemetry
+    PG[("PostgreSQL Database<br/>(Incidents & Append-Only Audit Trail)")]:::dbStyle
+    NEO4J[("Neo4j Graph DB<br/>(Service Topology & Blast Radius)")]:::dbStyle
+    JAEGER["Jaeger / OpenTelemetry<br/>(Distributed Tracing Spans)"]:::dbStyle
+    VAULT["HashiCorp Vault<br/>(Ephemeral Credentials)"]:::dbStyle
+    LLM["Cost-Aware LLM Router<br/>(Lightweight Triage / Frontier Reasoning)"]:::extStyle
+
+    %% External Cloud Systems
+    EXT_OPS["External Infrastructure<br/>(Kubernetes, ArgoCD, GitHub, Prometheus, Loki, Slack, Jira)"]:::extStyle
+    ALERTS["Monitoring Webhooks<br/>(Prometheus Alertmanager / PagerDuty)"]:::extStyle
+
+    %% Synchronous Paths (Solid Lines)
+    OPERATOR <-->|Review Telemetry & Approve Gates| UI
+    UI <-->|HTTP REST & SseEmitter Stream| BFF_CTRL
+    BFF_CTRL --> BFF_SRV
+    BFF_SRV <-->|CRUD & Audit Queries| BFF_DAO
+    BFF_DAO <-->|Read / Write| PG
+
+    AG_EMBABEL <-->|Goal Planning & Synthesis| AG_SRV
+    AG_SRV <-->|Prompt Completion| LLM
+    AG_CLIENT <-->|Cypher Topology Traversal| NEO4J
+    AG_CLIENT ==>|Token-Scoped Tool Requests (JWT)| GW_CTRL
+
+    GW_CTRL --> GW_FILT
+    GW_FILT --> GW_TOOLS
+    GW_TOOLS <-->|Fetch Short-Lived Secrets| VAULT
+    GW_TOOLS <-->|Native API Calls| EXT_OPS
+
+    %% Asynchronous Kafka Event Flows (Dashed Lines)
+    ALERTS -.->|incident.alerts| KAFKA
+    BFF_SRV -.->|incident.hitl ApprovalGranted| KAFKA
+    KAFKA -.->|Consume Stage Events| AG_CONS
+    AG_CONS --> AG_EMBABEL
+    AG_SRV -.->|Publish Next Stage Events| KAFKA
+    KAFKA -.->|Stream Live Progress Events| BFF_SRV
+
+    %% Distributed Tracing
+    BFF_SRV -.->|Trace Spans| JAEGER
+    AG_SRV -.->|Trace Spans| JAEGER
+    GW_CTRL -.->|Trace Spans| JAEGER
+```
+
+---
+
 ## Phase 0: Scaffolding, Standard Layered Structure & Infrastructure
 > **Duration:** Days 1–2  
 > **Objective:** Establish the 3 standard Spring Boot MVC microservices and hermetic local container infrastructure.
