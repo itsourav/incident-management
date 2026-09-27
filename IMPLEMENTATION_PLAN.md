@@ -95,13 +95,13 @@ flowchart TB
     %% ==========================================
     subgraph StorageInfra ["PostgreSQL Database (Dual-Schema System of Record)"]
         direction LR
-        PG_CORE[("Schema: core\n(Incidents, Facts, Evidence, Decisions)")]:::dbStyle
-        PG_AUDIT[("Schema: audit\n(Monotonic SHA-256 Hash Chain)")]:::dbStyle
+        PG_CORE[("Schema: core<br/>(Incidents, Facts, Evidence, Decisions)")]:::dbStyle
+        PG_AUDIT[("Schema: audit<br/>(Monotonic SHA-256 Hash Chain)")]:::dbStyle
     end
 
-    NEO4J[("Neo4j Graph DB\n(Service Topology)")]:::dbStyle
-    OPA["Open Policy Agent (OPA)\n(Declarative Rego Rules)"]:::gatewayStyle
-    LLM_EXT["LLM Provider Gateway\n(OpenRouter / Claude 3.7 / GPT-4o)"]:::extStyle
+    NEO4J[("Neo4j Graph DB<br/>(Service Topology)")]:::dbStyle
+    OPA["Open Policy Agent (OPA)<br/>(Declarative Rego Rules)"]:::gatewayStyle
+    LLM_EXT["LLM Provider Gateway<br/>(OpenRouter / Claude 3.7 / GPT-4o)"]:::extStyle
 
     %% ==========================================
     %% EVENT BUS
@@ -151,7 +151,7 @@ flowchart TB
     KAFKA -.->|Ingest Alert| CoreService
     CoreService -.->|incident.lifecycle & incident.evidence| KAFKA
     GatewayService -.->|incident.actions| KAFKA
-    HitlService -.->|incident.hitl (ApprovalGranted)| KAFKA
+    HitlService -.->|incident.hitl ApprovalGranted| KAFKA
     KAFKA -.->|Resume Workflow| CoreService
     KAFKA -.->|Stream Events| SSE_CTRL
 ```
