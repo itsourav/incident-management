@@ -28,14 +28,17 @@ The following diagram defines the **3 Spring Boot MVC microservices**, their int
 
 ```mermaid
 flowchart TB
-    %% Styling Classes
-    classDef uiStyle fill:#4f46e5,stroke:#3730a3,stroke-width:2px,color:#ffffff,font-weight:bold
-    classDef bffStyle fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#ffffff
-    classDef agentStyle fill:#1e293b,stroke:#8b5cf6,stroke-width:2px,color:#ffffff
-    classDef gwStyle fill:#1e293b,stroke:#f59e0b,stroke-width:2px,color:#ffffff
-    classDef dbStyle fill:#0f172a,stroke:#64748b,stroke-width:2px,color:#94a3b8
-    classDef busStyle fill:#083344,stroke:#06b6d4,stroke-width:2px,color:#67e8f9
-    classDef extStyle fill:#18181b,stroke:#52525b,stroke-width:1px,color:#d4d4d8
+    %% Pastel Styling Palette
+    classDef uiStyle fill:#E0E7FF,stroke:#6366F1,stroke-width:2px,color:#1E1B4B,font-weight:bold
+    classDef bffStyle fill:#F0F9FF,stroke:#0284C7,stroke-width:2px,color:#0369A1
+    classDef agentStyle fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px,color:#5B21B6
+    classDef gwStyle fill:#FFFBEB,stroke:#D97706,stroke-width:2px,color:#92400E
+    classDef nodeBff fill:#E0F2FE,stroke:#38BDF8,stroke-width:1.5px,color:#0C4A6E
+    classDef nodeAgent fill:#EDE9FE,stroke:#A78BFA,stroke-width:1.5px,color:#4C1D95
+    classDef nodeGw fill:#FEF3C7,stroke:#FCD34D,stroke-width:1.5px,color:#78350F
+    classDef dbStyle fill:#F1F5F9,stroke:#94A3B8,stroke-width:2px,color:#1E293B
+    classDef busStyle fill:#CCFBF1,stroke:#14B8A6,stroke-width:2px,color:#0F766E,font-weight:bold
+    classDef extStyle fill:#FFE4E6,stroke:#FB7185,stroke-width:1.5px,color:#9F1239
 
     %% UI & Human
     UI["ADRIT UI (React 19 + Vite Live Console)"]:::uiStyle
@@ -44,9 +47,9 @@ flowchart TB
     %% Service 1: adrit-bff
     subgraph BFF_SVC ["1. adrit-bff (Spring Boot MVC / BFF Layer)"]
         direction TB
-        BFF_CTRL["controller: IncidentController, ApprovalController, SseController"]
-        BFF_SRV["service: IncidentService, ApprovalService, SseEmitter"]
-        BFF_DAO["dao: IncidentDao, AuditDao (JPA / JDBC)"]
+        BFF_CTRL["controller: IncidentController, ApprovalController, SseController"]:::nodeBff
+        BFF_SRV["service: IncidentService, ApprovalService, SseEmitter"]:::nodeBff
+        BFF_DAO["dao: IncidentDao, AuditDao (JPA / JDBC)"]:::nodeBff
     end
     class BFF_SVC bffStyle
 
@@ -56,20 +59,20 @@ flowchart TB
     %% Service 2: adrit-agents
     subgraph AGENT_SVC ["2. adrit-agents (Spring Boot + Embabel GOAP)"]
         direction TB
-        AG_CONS["consumer: Kafka Listeners for 5 Stage Topics"]
-        AG_EMBABEL["embabel: GOAP Goals, Actions & Personas"]
-        AG_SRV["service: Triage, Investigation, Fixing, Deploy, Release"]
-        AG_CLIENT["client: McpGatewayClient, Neo4jClient"]
+        AG_CONS["consumer: Kafka Listeners for 5 Stage Topics"]:::nodeAgent
+        AG_EMBABEL["embabel: GOAP Goals, Actions & Personas"]:::nodeAgent
+        AG_SRV["service: Triage, Investigation, Fixing, Deploy, Release"]:::nodeAgent
+        AG_CLIENT["client: McpGatewayClient, Neo4jClient"]:::nodeAgent
     end
     class AGENT_SVC agentStyle
 
     %% Service 3: adrit-mcp-gateway
     subgraph GW_SVC ["3. adrit-mcp-gateway (Zero-Trust Tool Execution)"]
         direction TB
-        GW_CTRL["controller: ToolExecutionController (JSON-RPC)"]
-        GW_FILT["filter: TokenScopeFilter & DenyListFilter"]
-        GW_TOOLS["tools: GitHubTool, ArgoCdTool, K8sTool, ObservabilityTool"]
-        GW_SECRETS["service: VaultSecretService (Dynamic Credentials)"]
+        GW_CTRL["controller: ToolExecutionController (JSON-RPC)"]:::nodeGw
+        GW_FILT["filter: TokenScopeFilter & DenyListFilter"]:::nodeGw
+        GW_TOOLS["tools: GitHubTool, ArgoCdTool, K8sTool, ObservabilityTool"]:::nodeGw
+        GW_SECRETS["service: VaultSecretService (Dynamic Credentials)"]:::nodeGw
     end
     class GW_SVC gwStyle
 
