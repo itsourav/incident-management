@@ -94,7 +94,7 @@ flowchart TB
     AG_EMBABEL <-->|Goal Planning & Synthesis| AG_SRV
     AG_SRV <-->|Prompt Completion| LLM
     AG_CLIENT <-->|Cypher Topology Traversal| NEO4J
-    AG_CLIENT ==>|Token-Scoped Tool Requests (JWT)| GW_CTRL
+    AG_CLIENT ==>|Token-Scoped Tool Requests JWT| GW_CTRL
 
     GW_CTRL --> GW_FILT
     GW_FILT --> GW_TOOLS
