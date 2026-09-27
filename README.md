@@ -1,72 +1,85 @@
-# ADRIT — Zero-Trust Agentic AI Ops Platform
+# Zero-Trust Agentic AI Operations Framework for Incident Management
 
-> **ADRIT (Agentic Incident Management)** is an enterprise-grade Zero-Trust Agentic AI Operations platform for automated incident triage, investigation, remediation, canary deployment, and post-mortem generation.
+> Implementation of the **Infra-Agnostic Intelligent Ops Framework** by Brajveer Singh.  
+> An event-driven, multi-agent architecture where **autonomous speed meets enterprise-grade guardrails**.
 
 ---
 
 ## Architecture Overview
 
-ADRIT is built on a **Zero-Trust, Goal-Oriented, Hexagonal Architecture** partitioned into 4 core deployables backed by an asynchronous domain event bus:
-
 ```
-                 ┌──────────────┐
-                 │   ADRIT UI   │
-                 └──────┬───────┘
-                        │ HTTP / SSE
-                 ┌──────▼───────┐
-                 │  ADRIT CORE  │
-                 │              │
-                 │ GOAP Planner │
-                 │ Agent Personas│
-                 │ Blackboard   │
-                 │ Incident FSM │
-                 │ [Audit Mod.] │  (isolated schema: audit.*)
-                 └──────┬───────┘
-                        │ Tool Requests (ProposedAction)
-                 ┌──────▼───────┐
-                 │ MCP GATEWAY  │
-                 │              │
-                 │ Policy (OPA) │
-                 │ JIT Token    │
-                 │ Authorization│
-                 └──────┬───────┘
-                        │
-          ┌─────────────┼──────────────┐
-          │             │              │
-          ▼             ▼              ▼
-    adrit-tooling   adrit-hitl       Audit
-    (MCP Servers)  (Human Appr.)   (PostgreSQL)
-          │             │              │
-          ▼             ▼              ▼
-      External        Human        Dedicated
-       Systems       Operator        Schema
+                      ┌──────────────────────────────────────────────┐
+                      │                   Ops UI                     │
+                      │       (React 19 + Vite Live Dashboard)       │
+                      └──────────────────────┬───────────────────────┘
+                                             │ HTTP REST / SSE Stream
+                                             ▼
+                      ┌──────────────────────────────────────────────┐
+                      │                  BFF Layer                   │
+                      │         (Backend-for-Frontend API)           │
+                      │  • Telemetry Aggregation  • SSE Stream       │
+                      │  • OIDC Authentication    • Approval Checkpt │
+                      └──────┬────────────────────────────────┬──────┘
+                             │ State / Audit                  │ Approval Events
+                             ▼                                ▼
+                      ┌──────────────┐                 ┌──────────────┐
+                      │  PostgreSQL  │                 │    Kafka     │
+                      │ (Audit & DB) │                 │  Event Bus   │
+                      └──────────────┘                 └──────┬───────┘
+                                                              │
+        ┌───────────────────┬───────────────────┬─────────────┴─────┬───────────────────┐
+        ▼                   ▼                   ▼                   ▼                   ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ Alert Normal. │   │ Triage Agent  │   │ Invest. Agent │   │ Fixing Agent  │   │ Deploy Agent  │
+│ & Ingestion   │   │ (Opt. HITL 1) │   │ (Automated)   │   │ (Cond. HITL 2)│   │ (Mand. HITL 3)│
+└───────────────┘   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘
+                            │                   │                   │                   │
+                            └───────────────────┴─────────┬─────────┴───────────────────┘
+                                                          │ Token-Scoped Tool Calls
+                                                          ▼
+                                            ┌───────────────────────────┐
+                                            │        MCP Gateway        │
+                                            │ (Scope Check & Deny-List) │
+                                            └─────────────┬─────────────┘
+                                                          │ Dynamic Secrets
+                                                          ▼
+                                            ┌───────────────────────────┐
+                                            │  Specialized MCP Servers  │
+                                            │ (Git, K8s, CI/CD, Obs.)   │
+                                            └─────────────┬─────────────┘
+                                                          │ Native APIs
+                                                          ▼
+                                            ┌───────────────────────────┐
+                                            │ External Ops & Cloud Syst.│
+                                            └───────────────────────────┘
 ```
 
 ---
 
-## The 4 Deployables
+## Key Pillars
 
-1. **`adrit-core`** (The Brain): GOAP planning engine, in-memory Blackboard state projection, incident lifecycle FSM, multi-persona agent synthesis, REST/SSE stream controllers, `adrit-llm` module, and internal audit module.
-2. **`adrit-mcp-gateway`** (Execution Perimeter): Zero-Trust reverse proxy, OPA Rego policy evaluation (blocks `deleteDeployment`), 5-minute ephemeral JIT token issuance, and anti-TOCTOU attestation verification.
-3. **`adrit-hitl`** (Human Authorization): Approval portal API, RFC 8785 canonical JSON hashing, approval records, and SLA timeout escalation timers.
-4. **`adrit-tooling`** (MCP Tool Servers): Model Context Protocol servers wrapping Kubernetes, ArgoCD, GitHub, and Observability tools (Prometheus, Loki, Tempo).
-
-### Supporting Infrastructure
-- **`adrit-ui`**: React 19 + Vite operational console and live simulation dashboard.
-- **`PostgreSQL`**: Source of truth with separated schemas (`core` for blackboard/incident context, `audit` for immutable hash-chained ledger).
-- **`Kafka / Redpanda`**: Durable domain event transport (`incident.alerts`, `incident.actions`, `incident.hitl`).
-- **`Neo4j`**: Service topology graph database for blast-radius calculation.
-- **`OPA`**: Declarative Rego policy engine.
+1. **Decoupled by Design (Kafka Choreography + BFF Layer)**: Agents coordinate asynchronously across Kafka (`Kafka -> Agent -> Kafka -> Next Agent`). The browser is completely isolated behind a dedicated BFF API.
+2. **Zero-Trust Tool Enforcement (The MCP Gateway)**: Agents hold zero static credentials and never call production tools directly. Calls are gated behind token-scoped JWTs and deny-list policy checks.
+3. **Multi-Stage Human-in-the-Loop (HITL) Guardrails**:
+   * **Stage 1 (Triage):** Optional gate for P1 / ambiguous ownership.
+   * **Stage 2 (Investigation):** Automated read-only analysis using Neo4j topology graphs and logs.
+   * **Stage 3 (Fixing):** Conditional gate for rollback PRs / schema changes.
+   * **Stage 4 (Deploy/Validation):** Mandatory gate for all production traffic shifts.
+   * **Stage 5 (Release/Notify):** Automated outbound updates to Slack, Jira, PagerDuty.
+4. **Cost-Aware Model Routing**: Lightweight models for triage classification; frontier models (Claude Sonnet / GPT-4o) for root cause analysis and fix generation.
 
 ---
 
 ## Documentation
 
-- **[PLAN.md](PLAN.md)**: Detailed system specifications, architectural invariants, domain models, and security contracts.
-- **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)**: Step-by-step 6-phase engineering roadmap with exit criteria.
+* **[PLAN.md](PLAN.md)**: Architecture specifications, agent responsibilities, MCP gateway contracts, and the Asha 5xx checkout scenario.
+* **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)**: 6-phase engineering plan and exit criteria.
 
 ---
 
-## License
+## Advanced Architecture
 
-Proprietary / Private.
+The previous comprehensive design (incorporating GOAP backward planning, four isolated deployable services, and mathematical RFC 8785 canonical hash attestation) has been preserved on the **`advance`** branch:
+```bash
+git checkout advance
+```
