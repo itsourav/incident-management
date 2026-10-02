@@ -1,6 +1,6 @@
 # Zero-Trust Agentic AI Operations Framework for Incident Management
 
-> Based on the **Infra-Agnostic Intelligent Ops Framework** by Brajveer Singh.  
+> Based on the **Infra-Agnostic Intelligent Ops Framework** 
 > An event-driven, multi-agent architecture where **autonomous speed meets enterprise-grade guardrails**.
 
 ---
